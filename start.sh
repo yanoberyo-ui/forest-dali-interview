@@ -5,7 +5,7 @@ echo "🌳 Forest Dali AI Interview - Starting..."
 
 # Run database migration
 echo "📦 Running database migration..."
-npx prisma migrate deploy 2>/dev/null || npx prisma db push --accept-data-loss
+node node_modules/prisma/build/index.js migrate deploy 2>/dev/null || node node_modules/prisma/build/index.js db push --accept-data-loss
 
 # Seed admin user if not exists
 echo "👤 Seeding admin user..."
