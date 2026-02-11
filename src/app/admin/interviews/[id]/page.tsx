@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { INTERVIEW_TYPES, type InterviewType } from "@/lib/constants";
 
+export const dynamic = 'force-dynamic';
+
 interface TraitData {
   score: number;
   comment: string;

@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { INTERVIEW_TYPES, type InterviewType } from "@/lib/constants";
 
+export const dynamic = 'force-dynamic';
+
 export default async function AdminDashboard() {
   const interviews = await prisma.interview.findMany({
     where: { status: "completed" },
