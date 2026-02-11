@@ -16,17 +16,23 @@ export default function AdminLogin() {
     setIsLoading(true);
     setError("");
 
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    try {
+      const result = await signIn("credentials", {
+        email,
+        password,
+        redirect: false,
+      });
 
-    if (result?.error) {
-      setError("メールアドレスまたはパスワードが正しくありません");
+      if (result?.error) {
+        setError("メールアドレスまたはパスワードが正しくありません");
+        setIsLoading(false);
+      } else {
+        router.push("/admin/dashboard");
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("サーバーに接続できませんでした。しばらくしてからもう一度お試しください。");
       setIsLoading(false);
-    } else {
-      router.push("/admin/dashboard");
     }
   };
 

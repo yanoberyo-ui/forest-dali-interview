@@ -184,6 +184,16 @@ function InterviewSessionContent() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isSending]);
 
+  // Prevent browser close during upload
+  useEffect(() => {
+    if (!isUploading) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [isUploading]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -383,8 +393,26 @@ function InterviewSessionContent() {
 
   return (
     <div className="h-screen flex flex-col bg-surface">
+      {/* Upload Overlay */}
+      {isUploading && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center">
+            <div className="mx-auto mb-6 w-16 h-16 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+            <h3 className="text-lg font-bold mb-2">録画をアップロード中...</h3>
+            <p className="text-foreground/60 text-sm leading-relaxed">
+              完了するまでブラウザは閉じずにお待ちください。
+            </p>
+            <div className="flex justify-center gap-1.5 mt-4">
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="w-2 h-2 bg-primary rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="bg-primary text-white py-3 px-4 shadow-md flex items-center justify-between">
+      <header className="bg-primary text-white py-2 px-3 lg:py-3 lg:px-4 shadow-md flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-white/20 rounded-lg flex items-center justify-center text-sm font-bold">
             FD
@@ -413,7 +441,7 @@ function InterviewSessionContent() {
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Video Preview */}
-        <div className="lg:w-1/3 bg-black relative">
+        <div className="h-[30vh] lg:h-auto lg:w-1/3 bg-black relative flex-shrink-0">
           <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
           {!cameraReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
@@ -426,7 +454,7 @@ function InterviewSessionContent() {
         </div>
 
         {/* Chat Area */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-h-0">
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.filter((msg) => msg.role === "assistant").map((msg, i, assistantMsgs) => (
               <div key={i} className="flex justify-start">
@@ -466,7 +494,7 @@ function InterviewSessionContent() {
           </div>
 
           {/* Input Area - Voice Only */}
-          <div className="border-t bg-white p-4">
+          <div className="border-t bg-white p-3 lg:p-4 flex-shrink-0">
             {isComplete ? (
               <div className="text-center">
                 <button

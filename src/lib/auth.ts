@@ -3,6 +3,14 @@ import Credentials from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 
+if (!process.env.AUTH_SECRET) {
+  console.error(
+    "[AUTH ERROR] AUTH_SECRET environment variable is not set. " +
+    "NextAuth will not function correctly. " +
+    "Please set AUTH_SECRET in your environment variables."
+  );
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
     Credentials({
