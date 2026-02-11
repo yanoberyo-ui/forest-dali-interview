@@ -64,17 +64,36 @@ export function useMediaRecorder() {
     return new Promise((resolve) => {
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === "inactive") {
-        resolve(new Blob(chunksRef.current, { type: "video/webm" }));
+        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        setIsRecording(false);
+        resolve(blob);
         return;
       }
 
+      // Timeout: iOS Safari sometimes doesn't fire onstop
+      const timeout = setTimeout(() => {
+        console.warn("MediaRecorder onstop timeout - resolving with available chunks");
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
+        setIsRecording(false);
+        resolve(blob);
+      }, 3000);
+
       recorder.onstop = () => {
+        clearTimeout(timeout);
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "video/webm" });
         setIsRecording(false);
         resolve(blob);
       };
 
-      recorder.stop();
+      try {
+        recorder.stop();
+      } catch (e) {
+        console.warn("MediaRecorder.stop() error:", e);
+        clearTimeout(timeout);
+        const blob = new Blob(chunksRef.current, { type: "video/webm" });
+        setIsRecording(false);
+        resolve(blob);
+      }
     });
   }, []);
 

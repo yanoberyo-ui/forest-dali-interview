@@ -10,13 +10,12 @@ export default function InterviewSetup() {
   const [step, setStep] = useState<"type" | "info">("type");
   const [selectedType, setSelectedType] = useState<InterviewType | null>(null);
   const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedType || !name.trim() || !email.trim()) return;
+    if (!selectedType || !name.trim()) return;
 
     setIsSubmitting(true);
     setError("");
@@ -27,7 +26,7 @@ export default function InterviewSetup() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           candidateName: name.trim(),
-          candidateEmail: email.trim(),
+          candidateEmail: "-",
           interviewType: selectedType,
         }),
       });
@@ -138,10 +137,10 @@ export default function InterviewSetup() {
               {/* Header */}
               <div className="text-center mb-10">
                 <h1 className="text-3xl sm:text-4xl font-bold text-foreground mb-3">
-                  お名前と連絡先
+                  お名前を入力
                 </h1>
                 <p className="text-foreground/40">
-                  面接に必要な情報を入力してください
+                  面接で使用するお名前を入力してください
                 </p>
               </div>
 
@@ -158,17 +157,6 @@ export default function InterviewSetup() {
                     className="w-full px-4 py-3.5 bg-surface border-0 rounded-xl text-foreground placeholder:text-foreground/25 focus:ring-2 focus:ring-primary/20 transition-all"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-foreground/70 mb-2">メールアドレス</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="taro@example.com"
-                    required
-                    className="w-full px-4 py-3.5 bg-surface border-0 rounded-xl text-foreground placeholder:text-foreground/25 focus:ring-2 focus:ring-primary/20 transition-all"
-                  />
-                </div>
 
                 {error && (
                   <div className="flex items-center gap-2 px-4 py-3 bg-error/5 border border-error/10 rounded-xl">
@@ -181,7 +169,7 @@ export default function InterviewSetup() {
 
                 <button
                   type="submit"
-                  disabled={isSubmitting || !name.trim() || !email.trim()}
+                  disabled={isSubmitting || !name.trim()}
                   className="w-full bg-primary hover:bg-primary-dark disabled:opacity-30 disabled:cursor-not-allowed text-white font-semibold py-3.5 rounded-xl transition-all duration-300 hover:shadow-lg mt-2"
                 >
                   {isSubmitting ? (

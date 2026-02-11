@@ -8,6 +8,7 @@ export function useTextToSpeech() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const voicesLoadedRef = useRef(false);
   const cachedVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const unlockedRef = useRef(false);
 
   // Preload voices (needed for all browsers, especially mobile)
   useEffect(() => {
@@ -38,23 +39,34 @@ export function useTextToSpeech() {
     (audio as any).playsInline = true;
     audioRef.current = audio;
 
-    // Unlock audio on first user interaction (needed for iOS Safari)
+    // Unlock audio on EVERY user interaction (needed for iOS Safari)
+    // iOS requires the first speechSynthesis.speak() to be in a user gesture context.
+    // After that, subsequent calls work without gestures.
     const unlock = () => {
+      if (unlockedRef.current) return;
+      unlockedRef.current = true;
+
+      // Unlock HTML5 Audio
       audio.src =
         "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAABhkVWPloAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAABhkVWPloAAAAAAAAAAAAAAAAA";
       audio.play().catch(() => {});
-      // Also warm up speechSynthesis on iOS
+
+      // Unlock Web Speech API - speak a real character to truly unlock on iOS
       if ("speechSynthesis" in window) {
-        const warmup = new SpeechSynthesisUtterance("");
-        warmup.volume = 0;
-        speechSynthesis.speak(warmup);
         speechSynthesis.cancel();
+        const warmup = new SpeechSynthesisUtterance(".");
+        warmup.volume = 0.01; // Nearly silent but not 0 (iOS ignores volume=0)
+        warmup.rate = 2;
+        warmup.lang = "ja-JP";
+        speechSynthesis.speak(warmup);
       }
-      document.removeEventListener("touchstart", unlock);
-      document.removeEventListener("click", unlock);
+
+      console.log("[TTS] Audio unlocked via user gesture");
     };
-    document.addEventListener("touchstart", unlock, { once: true });
-    document.addEventListener("click", unlock, { once: true });
+
+    // Listen for ALL click/touch events, not just once
+    document.addEventListener("touchstart", unlock);
+    document.addEventListener("click", unlock);
 
     return () => {
       document.removeEventListener("touchstart", unlock);
@@ -75,6 +87,10 @@ export function useTextToSpeech() {
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       speechSynthesis.cancel();
+    }
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
     }
     setIsSpeaking(false);
   }, []);
@@ -97,22 +113,44 @@ export function useTextToSpeech() {
     );
   }, []);
 
+  // iOS Safari keepalive: speechSynthesis pauses after ~15s without this
+  const keepAliveRef = useRef<NodeJS.Timeout | null>(null);
+  const startKeepAlive = useCallback(() => {
+    if (keepAliveRef.current) clearInterval(keepAliveRef.current);
+    keepAliveRef.current = setInterval(() => {
+      if (speechSynthesis.speaking && !speechSynthesis.paused) {
+        speechSynthesis.pause();
+        speechSynthesis.resume();
+      }
+    }, 10000);
+  }, []);
+
+  const stopKeepAlive = useCallback(() => {
+    if (keepAliveRef.current) {
+      clearInterval(keepAliveRef.current);
+      keepAliveRef.current = null;
+    }
+  }, []);
+
   const speakWithWebSpeechAPI = useCallback(
     (text: string) => {
       if (typeof window === "undefined" || !("speechSynthesis" in window))
         return;
 
       speechSynthesis.cancel();
+      stopKeepAlive();
 
       // iOS Safari has a bug where long text causes speechSynthesis to stop.
-      // Split into chunks of ~200 characters at sentence boundaries.
-      const chunks = splitTextIntoChunks(text, 200);
+      // Split into chunks of ~150 characters at sentence boundaries.
+      const chunks = splitTextIntoChunks(text, 150);
 
       let currentIndex = 0;
       setIsSpeaking(true);
+      startKeepAlive();
 
       const speakNext = () => {
         if (currentIndex >= chunks.length) {
+          stopKeepAlive();
           setIsSpeaking(false);
           return;
         }
@@ -130,14 +168,20 @@ export function useTextToSpeech() {
 
         utterance.onend = () => {
           currentIndex++;
-          speakNext();
+          // Small delay between chunks for iOS stability
+          setTimeout(speakNext, 50);
         };
 
         utterance.onerror = (e) => {
           // "interrupted" is expected when stop() is called
-          if (e.error !== "interrupted") {
-            console.warn("[TTS] Web Speech API error:", e.error);
+          if (e.error !== "interrupted" && e.error !== "canceled") {
+            console.warn("[TTS] Web Speech API error:", e.error, "chunk:", currentIndex);
+            // Try next chunk on error
+            currentIndex++;
+            setTimeout(speakNext, 100);
+            return;
           }
+          stopKeepAlive();
           setIsSpeaking(false);
         };
 
@@ -146,7 +190,7 @@ export function useTextToSpeech() {
 
       speakNext();
     },
-    [getJapaneseVoice]
+    [getJapaneseVoice, startKeepAlive, stopKeepAlive]
   );
 
   const speak = useCallback(

@@ -185,6 +185,7 @@ function InterviewSessionContent() {
   }, [transcript, stopListening, sendMessage]);
 
   const uploadingRef = useRef(false);
+  const [uploadError, setUploadError] = useState(false);
   const handleEndInterview = useCallback(async () => {
     if (uploadingRef.current) return;
     uploadingRef.current = true;
@@ -193,15 +194,49 @@ function InterviewSessionContent() {
     if (timerRef.current) clearInterval(timerRef.current);
     try {
       stopListening(); stopSpeaking();
-      const blob = await stopRecording();
+
+      // Stop recording with timeout protection
+      let blob: Blob;
+      try {
+        blob = await Promise.race([
+          stopRecording(),
+          new Promise<Blob>((_, reject) => setTimeout(() => reject(new Error("stopRecording timeout")), 5000))
+        ]);
+      } catch (e) {
+        console.warn("stopRecording failed, creating empty blob:", e);
+        blob = new Blob([], { type: "video/webm" });
+      }
       stopCamera();
-      const formData = new FormData();
-      formData.append("video", blob, "interview.webm");
-      formData.append("interviewId", interviewId!);
-      await fetch("/api/video/upload", { method: "POST", body: formData });
-      await fetch("/api/interview/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId }) });
+
+      // Skip upload if blob is empty (recording failed)
+      if (blob.size > 0) {
+        const formData = new FormData();
+        formData.append("video", blob, "interview.webm");
+        formData.append("interviewId", interviewId!);
+
+        // Upload with timeout (120s for large videos)
+        const controller = new AbortController();
+        const uploadTimeout = setTimeout(() => controller.abort(), 120000);
+        try {
+          await fetch("/api/video/upload", { method: "POST", body: formData, signal: controller.signal });
+        } catch (uploadErr) {
+          console.error("Video upload failed:", uploadErr);
+          setUploadError(true);
+        } finally {
+          clearTimeout(uploadTimeout);
+        }
+      }
+
+      // Always mark interview as complete
+      try {
+        await fetch("/api/interview/complete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ interviewId }) });
+      } catch (e) { console.error("Complete API failed:", e); }
+
       router.push("/interview/complete");
-    } catch (err) { console.error("End interview error:", err); router.push("/interview/complete"); }
+    } catch (err) {
+      console.error("End interview error:", err);
+      router.push("/interview/complete");
+    }
   }, [interviewId, stopListening, stopSpeaking, stopRecording, stopCamera, router]);
 
   const hasAutoEnded = useRef(false);
@@ -298,9 +333,26 @@ function InterviewSessionContent() {
       {isUploading && (
         <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl shadow-2xl p-10 max-w-sm w-full text-center animate-scale-in">
-            <div className="mx-auto mb-6 w-14 h-14 border-[3px] border-surface border-t-primary rounded-full animate-spin" />
-            <h3 className="text-lg font-bold text-foreground mb-2">アップロード中</h3>
-            <p className="text-foreground/45 text-sm leading-relaxed">録画データを送信しています。<br />ブラウザを閉じずにお待ちください。</p>
+            {uploadError ? (
+              <>
+                <div className="mx-auto mb-6 w-14 h-14 bg-error/10 rounded-full flex items-center justify-center">
+                  <svg className="w-7 h-7 text-error" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+                  </svg>
+                </div>
+                <h3 className="text-lg font-bold text-foreground mb-2">送信に時間がかかっています</h3>
+                <p className="text-foreground/45 text-sm leading-relaxed mb-6">動画の送信に問題がありました。<br />面接の回答は保存されています。</p>
+                <button onClick={() => router.push("/interview/complete")} className="bg-primary hover:bg-primary-dark text-white font-semibold py-3 px-8 rounded-full transition-all">
+                  完了画面へ進む
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="mx-auto mb-6 w-14 h-14 border-[3px] border-surface border-t-primary rounded-full animate-spin" />
+                <h3 className="text-lg font-bold text-foreground mb-2">アップロード中</h3>
+                <p className="text-foreground/45 text-sm leading-relaxed">録画データを送信しています。<br />ブラウザを閉じずにお待ちください。</p>
+              </>
+            )}
           </div>
         </div>
       )}
