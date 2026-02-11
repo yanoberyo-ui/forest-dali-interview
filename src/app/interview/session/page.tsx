@@ -441,7 +441,7 @@ function InterviewSessionContent() {
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
         {/* Video Preview */}
-        <div className="h-[30vh] lg:h-auto lg:w-1/3 bg-black relative flex-shrink-0">
+        <div className="h-[25vh] lg:h-auto lg:w-1/3 bg-black relative flex-shrink-0">
           <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
           {!cameraReady && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white">
@@ -454,8 +454,8 @@ function InterviewSessionContent() {
         </div>
 
         {/* Chat Area */}
-        <div className="flex-1 flex flex-col min-h-0">
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-3 lg:p-4 space-y-3 lg:space-y-4 bg-surface">
             {messages.filter((msg) => msg.role === "assistant").map((msg, i, assistantMsgs) => (
               <div key={i} className="flex justify-start">
                 <div className="mr-2 mt-1">
