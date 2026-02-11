@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: forest-dali-interview
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    region: singapore
+    envVars:
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@forestdali.co.jp
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        value: file:/app/data/interview.db
+      - key: VIDEO_UPLOAD_DIR
+        value: /app/data/videos
+      - key: NEXT_PUBLIC_APP_NAME
+        value: Forest Dali AI Interview
+      - key: NEXT_PUBLIC_MAX_QUESTIONS
+        value: "7"
+    disk:
+      name: forest-dali-data
+      mountPath: /app/data
+      sizeGB: 10

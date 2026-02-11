@@ -1,0 +1,52 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Interview {
+  id             String        @id @default(cuid())
+  candidateName  String
+  candidateEmail String
+  interviewType  String        // "shinsotsu" | "intern" | "chuto"
+  status         String        @default("in_progress") // "in_progress" | "completed"
+  videoPath      String?
+  videoDuration  Int?
+  startedAt      DateTime      @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  messages       ChatMessage[]
+  assessment     Assessment?
+}
+
+model ChatMessage {
+  id          String    @id @default(cuid())
+  interviewId String
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  role        String    // "assistant" | "user"
+  content     String
+  questionNum Int?
+  createdAt   DateTime  @default(now())
+}
+
+model Assessment {
+  id          String    @id @default(cuid())
+  interviewId String    @unique
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  summary     String
+  traits      String    // JSON string
+  createdAt   DateTime  @default(now())
+}
