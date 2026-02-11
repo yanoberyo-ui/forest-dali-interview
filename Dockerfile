@@ -21,11 +21,11 @@ RUN npx prisma generate
 
 # Build Next.js (needs dummy env vars for build)
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV DATABASE_URL="file:./build.db"
+ENV DATABASE_URL="file:/app/build.db"
 RUN npm run build
 
 # Create template DB with schema (so we don't need prisma CLI at runtime)
-RUN npx prisma db push --accept-data-loss
+RUN npx prisma db push --accept-data-loss && ls -la /app/build.db
 
 # ---- Runner ----
 FROM base AS runner
