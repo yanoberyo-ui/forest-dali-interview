@@ -39,9 +39,9 @@ export function useTextToSpeech() {
     (audio as any).playsInline = true;
     audioRef.current = audio;
 
-    // Unlock audio on EVERY user interaction (needed for iOS Safari)
-    // iOS requires the first speechSynthesis.speak() to be in a user gesture context.
-    // After that, subsequent calls work without gestures.
+    // Unlock audio on user interaction (needed for iOS Safari)
+    // iOS requires speechSynthesis.speak() to be called once in a user gesture context.
+    // We do a minimal unlock and mark it done so speak() knows it's safe.
     const unlock = () => {
       if (unlockedRef.current) return;
       unlockedRef.current = true;
@@ -51,20 +51,19 @@ export function useTextToSpeech() {
         "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAABhkVWPloAAAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAABhkVWPloAAAAAAAAAAAAAAAAA";
       audio.play().catch(() => {});
 
-      // Unlock Web Speech API - speak a real character to truly unlock on iOS
+      // Unlock Web Speech API with minimal silent utterance
       if ("speechSynthesis" in window) {
-        speechSynthesis.cancel();
-        const warmup = new SpeechSynthesisUtterance(".");
-        warmup.volume = 0.01; // Nearly silent but not 0 (iOS ignores volume=0)
-        warmup.rate = 2;
+        const warmup = new SpeechSynthesisUtterance("");
+        warmup.volume = 0;
         warmup.lang = "ja-JP";
         speechSynthesis.speak(warmup);
+        // Cancel immediately so it doesn't block the queue
+        setTimeout(() => speechSynthesis.cancel(), 50);
       }
 
       console.log("[TTS] Audio unlocked via user gesture");
     };
 
-    // Listen for ALL click/touch events, not just once
     document.addEventListener("touchstart", unlock);
     document.addEventListener("click", unlock);
 
@@ -197,66 +196,20 @@ export function useTextToSpeech() {
     async (text: string) => {
       if (!text.trim()) return;
 
-      stop();
-
-      // On mobile, prefer Web Speech API directly to avoid the async fetch
-      // breaking iOS Safari's user gesture requirement.
-      const isMobile =
-        typeof navigator !== "undefined" &&
-        /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-      // Try cloud TTS first on desktop, or if OpenAI key is likely configured
-      if (!isMobile) {
-        const controller = new AbortController();
-        abortControllerRef.current = controller;
-
-        try {
-          setIsSpeaking(true);
-
-          const response = await fetch("/api/tts", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text }),
-            signal: controller.signal,
-          });
-
-          if (!response.ok) {
-            throw new Error(`TTS API returned ${response.status}`);
-          }
-
-          const blob = await response.blob();
-          const url = URL.createObjectURL(blob);
-
-          const audio = audioRef.current;
-          if (!audio) {
-            throw new Error("Audio element not initialized");
-          }
-
-          audio.onended = () => {
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-          };
-
-          audio.onerror = () => {
-            console.warn("[TTS] Audio playback error, falling back");
-            setIsSpeaking(false);
-            URL.revokeObjectURL(url);
-            speakWithWebSpeechAPI(text);
-          };
-
-          audio.src = url;
-          await audio.play();
-          return;
-        } catch (err) {
-          if (err instanceof DOMException && err.name === "AbortError") {
-            setIsSpeaking(false);
-            return;
-          }
-          console.warn("[TTS] Cloud TTS failed, using Web Speech API:", err);
+      // Cancel any currently playing speech, but don't cancel if nothing is playing
+      // (avoids interfering with the unlock warmup on iOS)
+      if (isSpeaking) {
+        stop();
+      } else {
+        // Just make sure speechSynthesis queue is clear
+        if (typeof window !== "undefined" && "speechSynthesis" in window) {
+          speechSynthesis.cancel();
         }
       }
 
-      // Mobile or cloud TTS failed: use Web Speech API directly
+      // Always use Web Speech API first for instant response.
+      // It's available on all modern browsers and starts immediately
+      // without network latency.
       speakWithWebSpeechAPI(text);
     },
     [stop, speakWithWebSpeechAPI]

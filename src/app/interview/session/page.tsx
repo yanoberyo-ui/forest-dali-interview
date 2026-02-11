@@ -133,7 +133,7 @@ function InterviewSessionContent() {
       const stream = await startCamera();
       startRecording(stream);
       setCameraReady(true);
-      setTimeout(speakFirstMessage, 500);
+      setTimeout(speakFirstMessage, 150);
     } catch { setPermissionError(true); }
   };
 
