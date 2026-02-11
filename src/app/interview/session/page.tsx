@@ -434,14 +434,6 @@ function InterviewSessionContent() {
             <div ref={chatEndRef} />
           </div>
 
-          {(transcript || interimTranscript) && isListening && (
-            <div className="px-4 lg:px-6 pb-2">
-              <div className="bg-white/80 backdrop-blur rounded-xl px-4 py-2.5 border border-black/5">
-                <p className="text-sm text-foreground/60">{transcript}<span className="text-foreground/25">{interimTranscript}</span></p>
-              </div>
-            </div>
-          )}
-
           <div className="border-t border-black/5 bg-white p-4 lg:p-5 flex-shrink-0">
             {isComplete ? (
               <div className="text-center py-2">
