@@ -24,6 +24,9 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL="file:./build.db"
 RUN npm run build
 
+# Create template DB with schema (so we don't need prisma CLI at runtime)
+RUN npx prisma db push --accept-data-loss
+
 # ---- Runner ----
 FROM base AS runner
 WORKDIR /app
@@ -41,11 +44,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy Prisma files for migration
-COPY --from=builder /app/prisma ./prisma
+# Copy Prisma client (runtime only - no CLI needed)
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
-COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/client
+
+# Copy template database (created during build with schema)
+COPY --from=builder /app/build.db ./template.db
 
 # Copy seed dependencies
 COPY --from=builder /app/node_modules/bcryptjs ./node_modules/bcryptjs

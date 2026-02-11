@@ -3,9 +3,14 @@ set -e
 
 echo "🌳 Forest Dali AI Interview - Starting..."
 
-# Run database migration
-echo "📦 Running database migration..."
-node node_modules/prisma/build/index.js migrate deploy 2>/dev/null || node node_modules/prisma/build/index.js db push --accept-data-loss
+# Initialize database from template if it doesn't exist
+if [ ! -f /app/data/interview.db ]; then
+  echo "📦 Initializing database from template..."
+  cp /app/template.db /app/data/interview.db
+  echo "✅ Database initialized"
+else
+  echo "📦 Database already exists, skipping initialization"
+fi
 
 # Seed admin user if not exists
 echo "👤 Seeding admin user..."
