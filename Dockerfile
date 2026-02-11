@@ -62,8 +62,8 @@ RUN chmod +x start.sh
 RUN mkdir -p /app/data/videos && chown -R nextjs:nodejs /app/data
 RUN mkdir -p /app/public/uploads/videos && chown -R nextjs:nodejs /app/public/uploads
 
-# Set volume for persistent data (DB + videos)
-VOLUME ["/app/data"]
+# NOTE: Do NOT use VOLUME here - it conflicts with Render's persistent disk mount.
+# Render mounts its own persistent disk at /app/data via render.yaml config.
 
 # Default env vars (override via Railway/Render dashboard)
 ENV DATABASE_URL="file:/app/data/interview.db"
