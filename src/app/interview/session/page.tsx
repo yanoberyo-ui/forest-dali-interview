@@ -255,8 +255,10 @@ function InterviewSessionContent() {
     }
   }, [transcript, stopListening, sendMessage]);
 
-  const handleEndInterview = async () => {
-    if (isUploading) return;
+  const uploadingRef = useRef(false);
+  const handleEndInterview = useCallback(async () => {
+    if (uploadingRef.current) return;
+    uploadingRef.current = true;
     setIsUploading(true);
     setIsComplete(true);
 
@@ -284,7 +286,25 @@ function InterviewSessionContent() {
       console.error("End interview error:", err);
       router.push("/interview/complete");
     }
-  };
+  }, [interviewId, stopListening, stopSpeaking, stopRecording, stopCamera, router]);
+
+  // Auto-end interview when isComplete becomes true
+  const hasAutoEnded = useRef(false);
+  useEffect(() => {
+    if (isComplete && !hasAutoEnded.current && !isUploading) {
+      hasAutoEnded.current = true;
+      // Wait for TTS to finish speaking the final message, then auto-end
+      const waitAndEnd = () => {
+        if (isSpeaking) {
+          setTimeout(waitAndEnd, 500);
+        } else {
+          handleEndInterview();
+        }
+      };
+      // Small delay to let the final message render
+      setTimeout(waitAndEnd, 1000);
+    }
+  }, [isComplete, isUploading, isSpeaking, handleEndInterview]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60)
