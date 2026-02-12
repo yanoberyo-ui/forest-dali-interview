@@ -93,6 +93,7 @@ function InterviewSessionContent() {
   const [questionNum, setQuestionNum] = useState(1);
   const [isComplete, setIsComplete] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [cameraReady, setCameraReady] = useState(false);
   const [permissionError, setPermissionError] = useState(false);
@@ -149,7 +150,8 @@ function InterviewSessionContent() {
       const mixedAudioStream = initMixer(mediaStream);
 
       // Start recording with mixed audio (candidate voice + AI voice)
-      startRecording(mediaStream, mixedAudioStream);
+      // Pass interviewId to enable background chunk uploads during recording
+      startRecording(mediaStream, mixedAudioStream, interviewId || undefined);
       setCameraReady(true);
       setTimeout(speakFirstMessage, 150);
     } catch { setPermissionError(true); }
@@ -214,35 +216,57 @@ function InterviewSessionContent() {
       stopListening(); stopSpeaking();
 
       // Stop recording with timeout protection
-      let blob: Blob;
+      let result: { blob: Blob; chunksUploaded: boolean };
       try {
-        blob = await Promise.race([
+        result = await Promise.race([
           stopRecording(),
-          new Promise<Blob>((_, reject) => setTimeout(() => reject(new Error("stopRecording timeout")), 5000))
+          new Promise<{ blob: Blob; chunksUploaded: boolean }>((_, reject) =>
+            setTimeout(() => reject(new Error("stopRecording timeout")), 5000)
+          ),
         ]);
       } catch (e) {
         console.warn("stopRecording failed, creating empty blob:", e);
-        blob = new Blob([], { type: "video/webm" });
+        result = { blob: new Blob([], { type: "video/webm" }), chunksUploaded: false };
       }
       stopCamera();
       cleanupMixer();
 
-      // Skip upload if blob is empty (recording failed)
-      if (blob.size > 0) {
-        const formData = new FormData();
-        formData.append("video", blob, "interview.webm");
-        formData.append("interviewId", interviewId!);
-
-        // Upload with timeout (120s for large videos)
-        const controller = new AbortController();
-        const uploadTimeout = setTimeout(() => controller.abort(), 120000);
+      if (result.blob.size > 0) {
         try {
-          await fetch("/api/video/upload", { method: "POST", body: formData, signal: controller.signal });
+          if (result.chunksUploaded) {
+            // Chunks already uploaded during recording — just finalize (merge on server)
+            setUploadProgress(90);
+            const res = await fetch("/api/video/finalize", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ interviewId }),
+            });
+            if (!res.ok) throw new Error("Finalize failed");
+            setUploadProgress(100);
+          } else {
+            // Fallback: upload entire blob at once
+            const formData = new FormData();
+            formData.append("video", result.blob, "interview.webm");
+            formData.append("interviewId", interviewId!);
+
+            await new Promise<void>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              xhr.open("POST", "/api/video/upload");
+              xhr.timeout = 120000;
+              xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                  setUploadProgress(Math.round((e.loaded / e.total) * 100));
+                }
+              };
+              xhr.onload = () => { if (xhr.status >= 200 && xhr.status < 300) resolve(); else reject(new Error(`Upload failed: ${xhr.status}`)); };
+              xhr.onerror = () => reject(new Error("Network error"));
+              xhr.ontimeout = () => reject(new Error("Upload timeout"));
+              xhr.send(formData);
+            });
+          }
         } catch (uploadErr) {
           console.error("Video upload failed:", uploadErr);
           setUploadError(true);
-        } finally {
-          clearTimeout(uploadTimeout);
         }
       }
 
@@ -369,7 +393,11 @@ function InterviewSessionContent() {
               <>
                 <div className="mx-auto mb-6 w-14 h-14 border-[3px] border-surface border-t-primary rounded-full animate-spin" />
                 <h3 className="text-lg font-bold text-foreground mb-2">アップロード中</h3>
-                <p className="text-foreground/45 text-sm leading-relaxed">録画データを送信しています。<br />ブラウザを閉じずにお待ちください。</p>
+                <div className="w-full bg-surface rounded-full h-2 mb-3 overflow-hidden">
+                  <div className="h-full bg-primary rounded-full transition-all duration-300 ease-out" style={{ width: `${uploadProgress}%` }} />
+                </div>
+                <p className="text-foreground/60 text-sm font-medium mb-1">{uploadProgress}%</p>
+                <p className="text-foreground/35 text-xs">ブラウザを閉じずにお待ちください</p>
               </>
             )}
           </div>
