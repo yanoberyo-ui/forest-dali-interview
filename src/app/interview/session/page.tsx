@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useTextToSpeech } from "@/hooks/useTextToSpeech";
+import { useAudioMixer } from "@/hooks/useAudioMixer";
 import { MAX_QUESTIONS } from "@/lib/constants";
 
 interface Message {
@@ -102,7 +103,19 @@ function InterviewSessionContent() {
 
   const { videoRef, isRecording, startCamera, startRecording, stopRecording, stopCamera } = useMediaRecorder();
   const { transcript, interimTranscript, isListening, startListening, stopListening, resetTranscript } = useSpeechRecognition();
-  const { isSpeaking, speak, stop: stopSpeaking } = useTextToSpeech();
+  const { initMixer, playTTSAudio, cleanup: cleanupMixer } = useAudioMixer();
+
+  // Route cloud TTS audio through AudioContext mixer so it gets captured in the recording
+  const handleCloudAudioData = useCallback(
+    async (arrayBuffer: ArrayBuffer) => {
+      await playTTSAudio(arrayBuffer);
+    },
+    [playTTSAudio]
+  );
+
+  const { isSpeaking, speak, stop: stopSpeaking } = useTextToSpeech({
+    onCloudAudioData: handleCloudAudioData,
+  });
 
   useEffect(() => {
     if (!interviewId || loadedRef.current) return;
@@ -130,8 +143,13 @@ function InterviewSessionContent() {
   const handleStartInterview = async () => {
     setShowTutorial(false);
     try {
-      const stream = await startCamera();
-      startRecording(stream);
+      const mediaStream = await startCamera();
+
+      // Initialize audio mixer: mix microphone + TTS audio into one stream for recording
+      const mixedAudioStream = initMixer(mediaStream);
+
+      // Start recording with mixed audio (candidate voice + AI voice)
+      startRecording(mediaStream, mixedAudioStream);
       setCameraReady(true);
       setTimeout(speakFirstMessage, 150);
     } catch { setPermissionError(true); }
@@ -154,7 +172,7 @@ function InterviewSessionContent() {
   }, [isUploading]);
 
   useEffect(() => {
-    return () => { stopCamera(); if (timerRef.current) clearInterval(timerRef.current); };
+    return () => { stopCamera(); cleanupMixer(); if (timerRef.current) clearInterval(timerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -207,6 +225,7 @@ function InterviewSessionContent() {
         blob = new Blob([], { type: "video/webm" });
       }
       stopCamera();
+      cleanupMixer();
 
       // Skip upload if blob is empty (recording failed)
       if (blob.size > 0) {
@@ -237,7 +256,7 @@ function InterviewSessionContent() {
       console.error("End interview error:", err);
       router.push("/interview/complete");
     }
-  }, [interviewId, stopListening, stopSpeaking, stopRecording, stopCamera, router]);
+  }, [interviewId, stopListening, stopSpeaking, stopRecording, stopCamera, cleanupMixer, router]);
 
   const hasAutoEnded = useRef(false);
   useEffect(() => {

@@ -28,7 +28,7 @@ export function useMediaRecorder() {
   }, []);
 
   const startRecording = useCallback(
-    (existingStream?: MediaStream) => {
+    (existingStream?: MediaStream, mixedAudioStream?: MediaStream) => {
       const s = existingStream || stream;
       if (!s) {
         setError("カメラストリームがありません");
@@ -36,6 +36,20 @@ export function useMediaRecorder() {
       }
 
       chunksRef.current = [];
+
+      // If a mixed audio stream is provided, combine video from camera + audio from mixer
+      let recordingStream: MediaStream;
+      if (mixedAudioStream && mixedAudioStream.getAudioTracks().length > 0) {
+        const videoTrack = s.getVideoTracks()[0];
+        const mixedAudioTrack = mixedAudioStream.getAudioTracks()[0];
+        if (videoTrack && mixedAudioTrack) {
+          recordingStream = new MediaStream([videoTrack, mixedAudioTrack]);
+        } else {
+          recordingStream = s;
+        }
+      } else {
+        recordingStream = s;
+      }
 
       const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9,opus")
         ? "video/webm;codecs=vp9,opus"
@@ -45,7 +59,7 @@ export function useMediaRecorder() {
         ? "video/webm"
         : "video/mp4";
 
-      const recorder = new MediaRecorder(s, { mimeType });
+      const recorder = new MediaRecorder(recordingStream, { mimeType });
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {

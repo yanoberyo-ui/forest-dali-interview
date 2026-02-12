@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getAnthropic } from "@/lib/claude";
 import { ASSESSMENT_PROMPT } from "@/utils/prompts";
+import { sendSlackNotification } from "@/lib/slack";
+import { INTERVIEW_TYPES, type InterviewType } from "@/lib/constants";
 
 export async function POST(request: Request) {
   try {
@@ -83,6 +85,21 @@ export async function POST(request: Request) {
           },
         });
       }
+    }
+
+    // Send Slack notification (non-blocking, errors are logged but don't fail the request)
+    try {
+      const typeLabel =
+        INTERVIEW_TYPES[interview.interviewType as InterviewType]?.label || interview.interviewType;
+      await sendSlackNotification({
+        candidateName: interview.candidateName,
+        candidateEmail: interview.candidateEmail,
+        interviewType: typeLabel,
+        interviewId: interview.id,
+        completedAt: new Date(),
+      });
+    } catch (slackErr) {
+      console.error("[Slack] Notification error:", slackErr);
     }
 
     return NextResponse.json({ success: true });

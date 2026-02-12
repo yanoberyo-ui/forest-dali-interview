@@ -2,13 +2,25 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 
-export function useTextToSpeech() {
+interface UseTextToSpeechOptions {
+  /** When provided, cloud TTS audio data is routed through this callback
+   *  (e.g., for AudioContext mixing into a recording) instead of HTMLAudioElement. */
+  onCloudAudioData?: (arrayBuffer: ArrayBuffer) => Promise<void>;
+}
+
+export function useTextToSpeech(options?: UseTextToSpeechOptions) {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const voicesLoadedRef = useRef(false);
   const cachedVoicesRef = useRef<SpeechSynthesisVoice[]>([]);
   const unlockedRef = useRef(false);
+
+  // Stable ref for onCloudAudioData so callbacks don't re-create on every render
+  const onCloudAudioDataRef = useRef(options?.onCloudAudioData);
+  useEffect(() => {
+    onCloudAudioDataRef.current = options?.onCloudAudioData;
+  }, [options?.onCloudAudioData]);
 
   // Preload voices (needed for all browsers, especially mobile)
   useEffect(() => {
@@ -40,8 +52,6 @@ export function useTextToSpeech() {
     audioRef.current = audio;
 
     // Unlock audio on user interaction (needed for iOS Safari)
-    // iOS requires speechSynthesis.speak() to be called once in a user gesture context.
-    // We do a minimal unlock and mark it done so speak() knows it's safe.
     const unlock = () => {
       if (unlockedRef.current) return;
       unlockedRef.current = true;
@@ -57,7 +67,6 @@ export function useTextToSpeech() {
         warmup.volume = 0;
         warmup.lang = "ja-JP";
         speechSynthesis.speak(warmup);
-        // Cancel immediately so it doesn't block the queue
         setTimeout(() => speechSynthesis.cancel(), 50);
       }
 
@@ -100,7 +109,6 @@ export function useTextToSpeech() {
         ? cachedVoicesRef.current
         : speechSynthesis.getVoices();
 
-    // Priority: high-quality Japanese voices
     return (
       voices.find((v) => v.name.includes("Google 日本語")) ||
       voices.find((v) => v.name.includes("Kyoko")) ||
@@ -139,8 +147,6 @@ export function useTextToSpeech() {
       speechSynthesis.cancel();
       stopKeepAlive();
 
-      // iOS Safari has a bug where long text causes speechSynthesis to stop.
-      // Split into chunks of ~150 characters at sentence boundaries.
       const chunks = splitTextIntoChunks(text, 150);
 
       let currentIndex = 0;
@@ -167,15 +173,12 @@ export function useTextToSpeech() {
 
         utterance.onend = () => {
           currentIndex++;
-          // Small delay between chunks for iOS stability
           setTimeout(speakNext, 50);
         };
 
         utterance.onerror = (e) => {
-          // "interrupted" is expected when stop() is called
           if (e.error !== "interrupted" && e.error !== "canceled") {
             console.warn("[TTS] Web Speech API error:", e.error, "chunk:", currentIndex);
-            // Try next chunk on error
             currentIndex++;
             setTimeout(speakNext, 100);
             return;
@@ -192,27 +195,93 @@ export function useTextToSpeech() {
     [getJapaneseVoice, startKeepAlive, stopKeepAlive]
   );
 
+  /**
+   * Try cloud TTS via /api/tts endpoint.
+   * If onCloudAudioData callback is set, routes audio through AudioContext (for recording).
+   * Otherwise, plays via HTMLAudioElement.
+   * Returns true on success, false on failure (caller should fall back to Web Speech API).
+   */
+  const speakWithCloudTTS = useCallback(
+    async (text: string): Promise<boolean> => {
+      try {
+        abortControllerRef.current = new AbortController();
+        const res = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text }),
+          signal: abortControllerRef.current.signal,
+        });
+
+        if (!res.ok) return false;
+
+        const arrayBuffer = await res.arrayBuffer();
+
+        // If audio mixer callback is provided, route through AudioContext for recording capture
+        if (onCloudAudioDataRef.current) {
+          setIsSpeaking(true);
+          try {
+            await onCloudAudioDataRef.current(arrayBuffer);
+          } finally {
+            setIsSpeaking(false);
+          }
+          return true;
+        }
+
+        // Default: play via HTMLAudioElement
+        const blob = new Blob([arrayBuffer], { type: "audio/mpeg" });
+        const url = URL.createObjectURL(blob);
+        const audio = audioRef.current;
+        if (!audio) {
+          URL.revokeObjectURL(url);
+          return false;
+        }
+
+        audio.src = url;
+        setIsSpeaking(true);
+
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          setIsSpeaking(false);
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          setIsSpeaking(false);
+        };
+
+        await audio.play();
+        return true;
+      } catch (e) {
+        if (e instanceof DOMException && e.name === "AbortError") {
+          // Intentional abort (stop() was called)
+          return true;
+        }
+        console.warn("[TTS] Cloud TTS failed, falling back to Web Speech API:", e);
+        return false;
+      }
+    },
+    []
+  );
+
   const speak = useCallback(
     async (text: string) => {
       if (!text.trim()) return;
 
-      // Cancel any currently playing speech, but don't cancel if nothing is playing
-      // (avoids interfering with the unlock warmup on iOS)
       if (isSpeaking) {
         stop();
       } else {
-        // Just make sure speechSynthesis queue is clear
         if (typeof window !== "undefined" && "speechSynthesis" in window) {
           speechSynthesis.cancel();
         }
       }
 
-      // Always use Web Speech API first for instant response.
-      // It's available on all modern browsers and starts immediately
-      // without network latency.
-      speakWithWebSpeechAPI(text);
+      // Try cloud TTS first (more reliable on mobile)
+      const cloudSuccess = await speakWithCloudTTS(text);
+      if (!cloudSuccess) {
+        // Fall back to Web Speech API
+        speakWithWebSpeechAPI(text);
+      }
     },
-    [stop, speakWithWebSpeechAPI]
+    [stop, speakWithCloudTTS, speakWithWebSpeechAPI, isSpeaking]
   );
 
   return {
@@ -220,6 +289,7 @@ export function useTextToSpeech() {
     isSupported: true,
     speak,
     stop,
+    audioRef,
   };
 }
 
@@ -237,11 +307,9 @@ function splitTextIntoChunks(text: string, maxLength: number): string[] {
       break;
     }
 
-    // Find the best split point within maxLength
     let splitAt = -1;
     const searchArea = remaining.slice(0, maxLength);
 
-    // Look for sentence-ending punctuation
     for (const sep of ["。", "！", "？", "?\n", "\n", "、"]) {
       const idx = searchArea.lastIndexOf(sep);
       if (idx > 0) {
@@ -250,7 +318,6 @@ function splitTextIntoChunks(text: string, maxLength: number): string[] {
       }
     }
 
-    // If no good split point, just split at maxLength
     if (splitAt <= 0) {
       splitAt = maxLength;
     }

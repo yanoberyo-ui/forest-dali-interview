@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 import { INTERVIEW_TYPES, type InterviewType } from "@/lib/constants";
+import { VideoPlayer } from "@/components/VideoPlayer";
 
 export const dynamic = 'force-dynamic';
 
@@ -120,11 +121,9 @@ export default async function InterviewDetail({
               <h3 className="text-lg font-semibold mb-3">面接動画</h3>
               <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
                 {interview.videoPath ? (
-                  <video controls className="w-full" preload="metadata">
-                    <source src={`/api/video/serve?file=${encodeURIComponent(interview.videoPath.split('/').pop() || '')}`} type="video/webm" />
-                    <source src={`/api/video/serve?file=${encodeURIComponent(interview.videoPath.split('/').pop() || '')}`} type="video/mp4" />
-                    お使いのブラウザは動画再生に対応していません。
-                  </video>
+                  <VideoPlayer
+                    src={`/api/video/serve?file=${encodeURIComponent(interview.videoPath.split('/').pop() || '')}`}
+                  />
                 ) : (
                   <div className="aspect-video bg-gray-100 flex items-center justify-center">
                     <p className="text-foreground/40">動画がありません</p>
