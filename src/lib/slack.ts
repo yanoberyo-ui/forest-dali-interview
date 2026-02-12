@@ -19,7 +19,7 @@ export async function sendSlackNotification(params: SlackNotificationParams): Pr
     process.env.NEXT_PUBLIC_BASE_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "http://localhost:3000");
 
-  const detailUrl = `${baseUrl}/admin/interviews/${params.interviewId}`;
+  const detailUrl = `https://forest-dali-interview.onrender.com/admin/dashboard`;
   const completedTime = params.completedAt.toLocaleDateString("ja-JP", {
     year: "numeric",
     month: "long",
