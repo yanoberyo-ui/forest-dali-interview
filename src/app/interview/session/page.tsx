@@ -4,8 +4,6 @@ import { useEffect, useState, useRef, useCallback, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useMediaRecorder } from "@/hooks/useMediaRecorder";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
-import { useTextToSpeech } from "@/hooks/useTextToSpeech";
-import { useAudioMixer } from "@/hooks/useAudioMixer";
 import { MAX_QUESTIONS } from "@/lib/constants";
 
 interface Message {
@@ -104,19 +102,6 @@ function InterviewSessionContent() {
 
   const { videoRef, isRecording, startCamera, startRecording, stopRecording, stopCamera } = useMediaRecorder();
   const { transcript, interimTranscript, isListening, startListening, stopListening, resetTranscript } = useSpeechRecognition();
-  const { initMixer, playTTSAudio, cleanup: cleanupMixer } = useAudioMixer();
-
-  // Route cloud TTS audio through AudioContext mixer so it gets captured in the recording
-  const handleCloudAudioData = useCallback(
-    async (arrayBuffer: ArrayBuffer) => {
-      await playTTSAudio(arrayBuffer);
-    },
-    [playTTSAudio]
-  );
-
-  const { isSpeaking, speak, stop: stopSpeaking } = useTextToSpeech({
-    onCloudAudioData: handleCloudAudioData,
-  });
 
   useEffect(() => {
     if (!interviewId || loadedRef.current) return;
@@ -137,23 +122,12 @@ function InterviewSessionContent() {
     loadInterview();
   }, [interviewId]);
 
-  const speakFirstMessage = useCallback(() => {
-    if (messages.length > 0 && messages[0].role === "assistant") speak(messages[0].content);
-  }, [messages, speak]);
-
   const handleStartInterview = async () => {
     setShowTutorial(false);
     try {
       const mediaStream = await startCamera();
-
-      // Initialize audio mixer: mix microphone + TTS audio into one stream for recording
-      const mixedAudioStream = initMixer(mediaStream);
-
-      // Start recording with mixed audio (candidate voice + AI voice)
-      // Pass interviewId to enable background chunk uploads during recording
-      startRecording(mediaStream, mixedAudioStream, interviewId || undefined);
+      startRecording(mediaStream, undefined, interviewId || undefined);
       setCameraReady(true);
-      setTimeout(speakFirstMessage, 150);
     } catch { setPermissionError(true); }
   };
 
@@ -174,7 +148,7 @@ function InterviewSessionContent() {
   }, [isUploading]);
 
   useEffect(() => {
-    return () => { stopCamera(); cleanupMixer(); if (timerRef.current) clearInterval(timerRef.current); };
+    return () => { stopCamera(); if (timerRef.current) clearInterval(timerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -184,7 +158,6 @@ function InterviewSessionContent() {
     setMessages((prev) => [...prev, { role: "user", content: userMsg }]);
     setIsSending(true);
     resetTranscript();
-    stopSpeaking();
     try {
       const res = await fetch("/api/interview/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -195,10 +168,9 @@ function InterviewSessionContent() {
       setMessages((prev) => [...prev, { role: "assistant", content: data.message }]);
       setQuestionNum(data.questionNum);
       if (data.isComplete) setIsComplete(true);
-      speak(data.message);
     } catch (err) { console.error("Send error:", err); }
     finally { setIsSending(false); }
-  }, [interviewId, isSending, resetTranscript, speak, stopSpeaking]);
+  }, [interviewId, isSending, resetTranscript]);
 
   const handleSendVoice = useCallback(() => {
     if (transcript.trim()) { stopListening(); sendMessage(transcript); }
@@ -213,7 +185,7 @@ function InterviewSessionContent() {
     setIsComplete(true);
     if (timerRef.current) clearInterval(timerRef.current);
     try {
-      stopListening(); stopSpeaking();
+      stopListening();
 
       // Stop recording with timeout protection
       let result: { blob: Blob; chunksUploaded: boolean };
@@ -229,7 +201,6 @@ function InterviewSessionContent() {
         result = { blob: new Blob([], { type: "video/webm" }), chunksUploaded: false };
       }
       stopCamera();
-      cleanupMixer();
 
       if (result.blob.size > 0) {
         try {
@@ -280,16 +251,15 @@ function InterviewSessionContent() {
       console.error("End interview error:", err);
       router.push("/interview/complete");
     }
-  }, [interviewId, stopListening, stopSpeaking, stopRecording, stopCamera, cleanupMixer, router]);
+  }, [interviewId, stopListening, stopRecording, stopCamera, router]);
 
   const hasAutoEnded = useRef(false);
   useEffect(() => {
     if (isComplete && !hasAutoEnded.current && !isUploading) {
       hasAutoEnded.current = true;
-      const waitAndEnd = () => { if (isSpeaking) { setTimeout(waitAndEnd, 500); } else { handleEndInterview(); } };
-      setTimeout(waitAndEnd, 1000);
+      setTimeout(handleEndInterview, 1000);
     }
-  }, [isComplete, isUploading, isSpeaking, handleEndInterview]);
+  }, [isComplete, isUploading, handleEndInterview]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, "0");
@@ -412,16 +382,6 @@ function InterviewSessionContent() {
           <span className="font-medium text-sm hidden sm:block text-white/90">面接</span>
         </div>
         <div className="flex items-center gap-5 text-xs">
-          {isSpeaking && (
-            <div className="flex items-center gap-1.5 text-white/70">
-              <div className="flex items-center gap-0.5">
-                <div className="w-0.5 h-2 bg-white/60 rounded-full animate-pulse" style={{ animationDelay: "0ms" }} />
-                <div className="w-0.5 h-3 bg-white/60 rounded-full animate-pulse" style={{ animationDelay: "150ms" }} />
-                <div className="w-0.5 h-2 bg-white/60 rounded-full animate-pulse" style={{ animationDelay: "300ms" }} />
-              </div>
-              <span>読み上げ中</span>
-            </div>
-          )}
           {isRecording && (
             <div className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 bg-red-400 rounded-full animate-pulse-dot" />
@@ -454,7 +414,7 @@ function InterviewSessionContent() {
           <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4">
             {messages.filter((msg) => msg.role === "assistant").map((msg, i, assistantMsgs) => (
               <div key={i} className="flex gap-3 animate-fade-in">
-                <InterviewerAvatar speaking={isSpeaking && i === assistantMsgs.length - 1} />
+                <InterviewerAvatar />
                 <div className="flex-1 max-w-[85%]">
                   <p className="text-[11px] font-medium text-foreground/30 mb-1.5">AI面接官</p>
                   <div className="bg-white rounded-2xl rounded-tl-lg px-4 py-3 shadow-sm">
@@ -492,11 +452,11 @@ function InterviewSessionContent() {
               <div className="space-y-3">
                 <div className="flex items-center justify-center gap-3">
                   {!isListening ? (
-                    <button onClick={startListening} disabled={isSending || isSpeaking} className="group flex items-center justify-center gap-2.5 bg-primary hover:bg-primary-dark disabled:opacity-30 text-white font-semibold py-3.5 px-8 rounded-full transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0">
+                    <button onClick={startListening} disabled={isSending} className="group flex items-center justify-center gap-2.5 bg-primary hover:bg-primary-dark disabled:opacity-30 text-white font-semibold py-3.5 px-8 rounded-full transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0">
                       <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 01-3-3V4.5a3 3 0 116 0v8.25a3 3 0 01-3 3z" />
                       </svg>
-                      {isSpeaking ? "読み上げ中..." : "マイクで回答する"}
+                      マイクで回答する
                     </button>
                   ) : (
                     <div className="flex items-center gap-3">

@@ -38,9 +38,9 @@ export default function Home() {
 
             {/* Main heading */}
             <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground mb-6 animate-fade-in opacity-0 stagger-1" style={{ lineHeight: '1.1' }}>
-              あなたらしさを、
+              代表から直接オファーが届く！
               <br />
-              <span className="text-primary">AIが引き出す面接</span>
+              <span className="text-primary">AI面談</span>
             </h1>
 
             {/* Subtitle */}
